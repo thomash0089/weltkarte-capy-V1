@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 declare global { interface Window { maplibregl?: any } }
 
@@ -10,14 +10,7 @@ const SUPPORTED_LANGS = ["de", "en", "es", "fr"] as const;
 type Lang = (typeof SUPPORTED_LANGS)[number];
 const LABEL_SCALE = 1.6;
 
-type Suggestion = {
-  id: string;
-  name: string;
-  subtitle?: string;
-  center: [number, number];
-  bbox?: [number, number, number, number];
-  raw: any;
-};
+type Suggestion = { id: string; name: string; subtitle?: string; center: [number, number]; bbox?: [number, number, number, number]; raw: any };
 
 type Waypoint = { id: string; name: string; coord: [number, number] };
 
@@ -27,21 +20,10 @@ type OverlayKey = "nationalparks" | "attractions" | "unesco" | "beaches";
 
 type Engine = "osrm" | "valhalla";
 
-type Config = {
-  geocoderBase: string;
-  overpassBases: string[];
-  routingEngine: Engine;
-  osrmBase: string;
-  valhallaBase: string;
-};
+type Config = { geocoderBase: string; routingEngine: Engine; osrmBase: string; valhallaBase: string };
 
 const DEFAULT_CONFIG: Config = {
   geocoderBase: "https://photon.komoot.io",
-  overpassBases: [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.openstreetmap.fr/api/interpreter",
-  ],
   routingEngine: "osrm",
   osrmBase: "https://router.project-osrm.org",
   valhallaBase: "https://valhalla1.openstreetmap.de",
@@ -70,10 +52,9 @@ export default function App() {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
   const [insertAfter, setInsertAfter] = useState<number | null>(null);
+  const [routeError, setRouteError] = useState<string>("");
 
   const [overlays, setOverlays] = useState<Record<OverlayKey, boolean>>({ nationalparks: false, attractions: false, unesco: false, beaches: false });
-  const overlayAbort = useRef<Record<OverlayKey, AbortController | null>>({ nationalparks: null, attractions: null, unesco: null, beaches: null });
-  const [overlayLoading, setOverlayLoading] = useState<Record<OverlayKey, boolean>>({ nationalparks: false, attractions: false, unesco: false, beaches: false });
   const overlayColors: Record<OverlayKey, string> = { nationalparks: "#2e7d32", attractions: "#8e24aa", unesco: "#f4511e", beaches: "#0288d1" };
   const unescoRef = useRef<any | null>(null);
 
@@ -116,7 +97,6 @@ export default function App() {
             scaleTextSizesOnMap(map, LABEL_SCALE);
           } catch {}
           prepareUserSourcesAndLayers(map);
-          ensureOverlaySources(map);
           map.on("click", (e: any) => addUserMarker(map, [e.lngLat.lng, e.lngLat.lat]));
           restoreFromStorage();
           setStatus("");
@@ -138,12 +118,9 @@ export default function App() {
 
   useEffect(() => { updateRouteLine(); computeRoadRoute(); }, [waypoints, config.routingEngine, config.osrmBase, config.valhallaBase]);
 
-<<<<<<< Updated upstream
-  useEffect(() => { reloadActiveOverlays(); }, [overlays, config.overpassBases]);
-=======
   useEffect(() => { reloadActiveOverlays(); }, [overlays]);
+
   useEffect(() => { (async () => { try { const res = await fetch('/data/unesco.geojson'); if (res.ok) { unescoRef.current = await res.json(); reloadActiveOverlays(); } } catch {} })(); }, []);
->>>>>>> Stashed changes
 
   function restoreFromStorage() {
     try {
@@ -174,7 +151,8 @@ export default function App() {
     map.addLayer({ id: "user-markers-layer", type: "circle", source: "user-markers", paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 3, 8, 6, 14, 9], "circle-color": "#2f5f8b", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } }, topmostSymbolLayerId(map));
 
     map.addSource("favorites", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-    map.addLayer({ id: "favorites-layer", type: "symbol", source: "favorites", layout: { "icon-image": ["coalesce", ["get", "icon"], "marker-15"], "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.9, 14, 1.3], "text-field": ["coalesce", ["get", "title"], "Favorit"], "text-offset": [0, 1.1], "text-anchor": "top", "text-size": ["*", 12, LABEL_SCALE * 0.9] }, paint: { "text-color": "#1b1b1b", "text-halo-color": "#ffffff", "text-halo-width": 1.2 } }, "user-markers-layer");
+    map.addLayer({ id: "favorites-points", type: "circle", source: "favorites", paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 3.5, 10, 6, 14, 9], "circle-color": "#f6b900", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } }, topmostSymbolLayerId(map));
+    map.addLayer({ id: "favorites-layer", type: "symbol", source: "favorites", layout: { "text-field": ["coalesce", ["get", "title"], "Favorit"], "text-offset": [0, 1.1], "text-anchor": "top", "text-size": ["*", 12, LABEL_SCALE * 0.9] }, paint: { "text-color": "#1b1b1b", "text-halo-color": "#ffffff", "text-halo-width": 1.2 } }, "favorites-points");
 
     map.addSource("routes", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "routes-casing", type: "line", source: "routes", paint: { "line-color": "#0b2e4f", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 2, 10, 5, 14, 8], "line-opacity": 0.25 } }, "favorites-layer");
@@ -183,24 +161,18 @@ export default function App() {
     map.addSource("routes-road", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "routes-road-casing", type: "line", source: "routes-road", paint: { "line-color": "#0b2e4f", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 3, 10, 6, 14, 10], "line-opacity": 0.35 } }, "routes-line");
     map.addLayer({ id: "routes-road-line", type: "line", source: "routes-road", paint: { "line-color": "#ff6f00", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 2, 10, 4, 14, 7] } }, "routes-road-casing");
-  }
 
-  function ensureOverlaySources(map: any) {
-    const insertBefore = topmostSymbolLayerId(map);
-    const defs: { key: OverlayKey; color: string }[] = [
-      { key: "nationalparks", color: overlayColors.nationalparks },
-      { key: "attractions", color: overlayColors.attractions },
-      { key: "unesco", color: overlayColors.unesco },
-      { key: "beaches", color: overlayColors.beaches },
-    ];
-    for (const d of defs) {
-      const src = `overlay-${d.key}`;
-      if (!map.getSource(src)) map.addSource(src, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-      const layerId = `${src}-points`;
-      if (!map.getLayer(layerId)) {
-        map.addLayer({ id: layerId, type: "circle", source: src, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 4, 10, 7, 14, 11], "circle-color": d.color, "circle-stroke-width": 2, "circle-stroke-color": "#ffffff", "circle-opacity": 0.95 } }, insertBefore);
-        map.on("click", layerId, (e: any) => {
-          const f = e.features?.[0]; if (!f) return; const p = f.properties || {}; const title = p.title || p.name || "Objekt";
+    for (const key of ["nationalparks","attractions","unesco","beaches"] as OverlayKey[]) {
+      const srcId = `overlay-${key}`;
+      if (!map.getSource(srcId)) map.addSource(srcId, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      const fillId = `${srcId}-fills`;
+      const ptId = `${srcId}-points`;
+      if (!map.getLayer(fillId)) map.addLayer({ id: fillId, type: "fill", source: srcId, paint: { "fill-color": overlayColors[key], "fill-opacity": 0.25 } }, topmostSymbolLayerId(map));
+      if (!map.getLayer(`${fillId}-outline`)) map.addLayer({ id: `${fillId}-outline`, type: "line", source: srcId, paint: { "line-color": overlayColors[key], "line-width": 1.5, "line-opacity": 0.7 } }, topmostSymbolLayerId(map));
+      if (!map.getLayer(ptId)) map.addLayer({ id: ptId, type: "circle", source: srcId, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 3, 8, 6, 14, 9], "circle-color": overlayColors[key], "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } }, `${fillId}-outline`);
+      for (const lid of [ptId, fillId]) {
+        map.on("click", lid, (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties || {}; const title = p.title || p.name || p.class || "Objekt";
           new window.maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(`<div style="min-width:220px"><div style="font-weight:600">${escapeHtml(title)}</div>${p.subtitle ? `<div style=\"opacity:.7\">${escapeHtml(p.subtitle)}</div>` : ""}</div>`).addTo(mapRef.current);
         });
       }
@@ -211,7 +183,7 @@ export default function App() {
 
   function addUserMarker(map: any, lngLat: [number, number], props: Record<string, any> = {}) { const f = { type: "Feature", geometry: { type: "Point", coordinates: lngLat }, properties: { createdAt: Date.now(), ...props } } as any; userMarkersRef.current.push(f); map.getSource("user-markers").setData({ type: "FeatureCollection", features: userMarkersRef.current }); }
   function clearUserMarkers() { userMarkersRef.current = []; const map = mapRef.current; if (map) map.getSource("user-markers").setData({ type: "FeatureCollection", features: [] }); }
-  function addFavorite(map: any, lngLat: [number, number], title = "Favorit", icon = "star-15") { const f = { type: "Feature", geometry: { type: "Point", coordinates: lngLat }, properties: { title, icon } } as any; favoritesRef.current.push(f); map.getSource("favorites").setData({ type: "FeatureCollection", features: favoritesRef.current }); persistFavorites(); }
+  function addFavorite(map: any, lngLat: [number, number], title = "Favorit") { const f = { type: "Feature", geometry: { type: "Point", coordinates: lngLat }, properties: { title } } as any; favoritesRef.current.push(f); map.getSource("favorites").setData({ type: "FeatureCollection", features: favoritesRef.current }); persistFavorites(); }
 
   function updateRouteLine() {
     const map = mapRef.current; if (!map) return;
@@ -236,7 +208,7 @@ export default function App() {
     try {
       const url = `${config.geocoderBase.replace(/\/$/, "")}/api/?q=${encodeURIComponent(q)}&lang=${encodeURIComponent(lang)}&limit=8`;
       const res = await fetch(url, { signal: ctl.signal }); const data = await res.json();
-      const feats: Suggestion[] = (data.features || []).map((f: any, idx: number) => { const p = f.properties || {}; const name = p.name || p.street || p.city || p.country || "Unbenannt"; const parts = [p.city, p.state, p.country].filter(Boolean); const subtitle = parts.join(" · "); let center: [number, number] = [f.geometry.coordinates[0], f.geometry.coordinates[1]]; const bbox = f.bbox && f.bbox.length === 4 ? [f.bbox[1], f.bbox[0], f.bbox[3], f.bbox[2]] as [number, number, number, number] : undefined; return { id: String(p.osm_id || idx), name, subtitle, center, bbox, raw: f }; });
+      const feats: Suggestion[] = (data.features || []).map((f: any, idx: number) => { const p = f.properties || {}; const name = p.name || p.street || p.city || p.country || "Unbenannt"; const parts = [p.city, p.state, p.country].filter(Boolean); const subtitle = parts.join(" · "); const center: [number, number] = [f.geometry.coordinates[0], f.geometry.coordinates[1]]; const bbox = f.bbox && f.bbox.length === 4 ? [f.bbox[1], f.bbox[0], f.bbox[3], f.bbox[2]] as [number, number, number, number] : undefined; return { id: String(p.osm_id || idx), name, subtitle, center, bbox, raw: f }; });
       setSuggestions(feats); setShowSuggestions(true);
     } catch (e) { if ((e as any)?.name !== "AbortError") setSuggestions([]); }
   }
@@ -247,15 +219,9 @@ export default function App() {
     addUserMarker(map, s.center, { title: s.name }); setShowSuggestions(false);
   }
   function addSuggestionToRoute(s: Suggestion) { const idx = insertAfter == null ? undefined : insertAfter; addWaypointAt(s.center, s.name, idx); }
-  function addSuggestionToFavorites(s: Suggestion) { const map = mapRef.current; if (!map) return; addFavorite(map, s.center, s.name, "star-15"); }
-
-  function getMapBbox(): [number, number, number, number] | null { const map = mapRef.current; if (!map) return null; const b = map.getBounds(); return [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]; }
+  function addSuggestionToFavorites(s: Suggestion) { const map = mapRef.current; if (!map) return; addFavorite(map, s.center, s.name); }
 
   function reloadActiveOverlays() {
-<<<<<<< Updated upstream
-    const bbox = getMapBbox(); const map = mapRef.current; if (!bbox || !map) return; const zoom = map.getZoom();
-    (Object.keys(overlays) as OverlayKey[]).forEach((k) => { if (overlays[k]) { if (zoom < 4) { clearOverlay(k); return; } loadOverlay(k, bbox); } else { clearOverlay(k); } });
-=======
     const map = mapRef.current; if (!map) return; const zoom = map.getZoom();
     (Object.keys(overlays) as OverlayKey[]).forEach((k) => {
       if (!overlays[k]) { setOverlayData(k, { type: 'FeatureCollection', features: [] }); return; }
@@ -263,48 +229,10 @@ export default function App() {
       if (zoom < 3) { setOverlayData(k, { type: 'FeatureCollection', features: [] }); return; }
       updateOverlayFromTilesStrict(k);
     });
->>>>>>> Stashed changes
   }
 
-  function clearOverlay(key: OverlayKey) { const map = mapRef.current; if (!map) return; const src = map.getSource(`overlay-${key}`); if (src) src.setData({ type: "FeatureCollection", features: [] }); if (overlayAbort.current[key]) overlayAbort.current[key]!.abort(); overlayAbort.current[key] = null; setOverlayLoading(prev => ({ ...prev, [key]: false })); }
+  function setOverlayData(key: OverlayKey, fc: any) { const map = mapRef.current; if (!map) return; const src = map.getSource(`overlay-${key}`); if (src) src.setData(fc); }
 
-<<<<<<< Updated upstream
-  async function loadOverlay(key: OverlayKey, bbox: [number, number, number, number]) {
-    if (overlayAbort.current[key]) overlayAbort.current[key]!.abort(); const ctl = new AbortController(); overlayAbort.current[key] = ctl; setOverlayLoading(prev => ({ ...prev, [key]: true }));
-    const q = buildOverpassQuery(key, bbox);
-    let lastErr: any = null;
-    for (const base of config.overpassBases) {
-      try {
-        const res = await fetch(base, { method: "POST", body: q, headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" }, signal: ctl.signal });
-        if (!res.ok) throw new Error(`Overpass ${res.status}`);
-        const json = await res.json();
-        const feats = (json.elements || []).map((el: any) => overpassElementToPointFeature(el, lang)).filter(Boolean);
-        const fc = { type: "FeatureCollection", features: feats } as any;
-        const map = mapRef.current; const src = map.getSource(`overlay-${key}`); if (src) src.setData(fc);
-        setOverlayLoading(prev => ({ ...prev, [key]: false }));
-        return;
-      } catch (e) { lastErr = e; continue; }
-    }
-    setOverlayLoading(prev => ({ ...prev, [key]: false }));
-  }
-
-  function buildOverpassQuery(key: OverlayKey, bbox: [number, number, number, number]) {
-    const b = `${bbox[0]},${bbox[1]},${bbox[2]},${bbox[3]}`; // south,west,north,east
-    let body = "";
-    if (key === "beaches") body = `data=[out:json][timeout:25];(node[\"natural\"=\"beach\"](${b});way[\"natural\"=\"beach\"](${b});relation[\"natural\"=\"beach\"](${b}););out center tags;`;
-    else if (key === "nationalparks") body = `data=[out:json][timeout:25];(way[\"boundary\"=\"protected_area\"][\"protect_class\"=2](${b});relation[\"boundary\"=\"protected_area\"][\"protect_class\"=2](${b});way[\"leisure\"=\"nature_reserve\"](${b});relation[\"leisure\"=\"nature_reserve\"](${b}););out center tags;`;
-    else if (key === "attractions") body = `data=[out:json][timeout:25];(node[\"tourism\"~\"^(attraction|museum|gallery|theme_park|zoo)$\"](${b});way[\"tourism\"~\"^(attraction|museum|gallery|theme_park|zoo)$\"](${b});relation[\"tourism\"~\"^(attraction|museum|gallery|theme_park|zoo)$\"](${b});node[\"historic\"](${b});way[\"historic\"](${b});relation[\"historic\"](${b}););out center tags;`;
-    else if (key === "unesco") body = `data=[out:json][timeout:25];(node[\"heritage:operator\"~\"(?i)unesco\"](${b});way[\"heritage:operator\"~\"(?i)unesco\"](${b});relation[\"heritage:operator\"~\"(?i)unesco\"](${b});node[\"heritage\"=\"1\"](${b});way[\"heritage\"=\"1\"](${b});relation[\"heritage\"=\"1\"](${b}););out center tags;`;
-    return body;
-  }
-
-  function overpassElementToPointFeature(el: any, l: Lang) {
-    const tags = el.tags || {}; const name = tags[`name:${l}`] || tags["name:latin"] || tags["name"] || null;
-    const coord: [number, number] = el.type === "node" ? [el.lon, el.lat] : [el.center?.lon, el.center?.lat]; if (!coord[0] || !coord[1]) return null;
-    const subtitleParts = [tags["wikidata"] ? "Wikidata" : null, tags["heritage"] ? "Heritage" : null].filter(Boolean);
-    const p: any = { title: name || "Objekt", subtitle: subtitleParts.join(" · ") };
-    return { type: "Feature", geometry: { type: "Point", coordinates: coord }, properties: p } as any;
-=======
   function updateOverlayFromTilesStrict(key: OverlayKey) {
     const map = mapRef.current; if (!map) return;
     const w = map.getCanvas().width, h = map.getCanvas().height;
@@ -341,28 +269,25 @@ export default function App() {
     if (key === "attractions") return ["attraction","museum","gallery","theme_park","zoo","monument","viewpoint","castle","church","cathedral","tower","ruins","memorial","fort","temple"].includes(cls) || !!hist || tour.length > 0;
     if (key === "unesco") return heritage === "1" || herOp.includes("unesco");
     return false;
->>>>>>> Stashed changes
   }
 
   async function computeRoadRoute() {
-    const map = mapRef.current; if (!map) return; if (waypoints.length < 2) { setRoadGeom(null); setRoadDistanceKm(null); setRoadDurationMin(null); map.getSource("routes-road").setData({ type: "FeatureCollection", features: [] }); return; }
-    setRoutingBusy(true);
+    const map = mapRef.current; if (!map) return; if (waypoints.length < 2) { setRouteError(""); setRoadGeom(null); setRoadDistanceKm(null); setRoadDurationMin(null); map.getSource("routes-road").setData({ type: "FeatureCollection", features: [] }); return; }
+    setRoutingBusy(true); setRouteError("");
     try {
       if (config.routingEngine === "osrm") {
         const coords = waypoints.map(w => `${w.coord[0]},${w.coord[1]}`).join(";");
         const base = config.osrmBase.replace(/\/$/, "");
-        const url = `${base}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false&annotations=false`;
+        const url = `${base}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`OSRM ${res.status}`);
         const json = await res.json();
         const route = json.routes?.[0];
         if (route?.geometry) {
-          const geom = route.geometry;
-          setRoadGeom(geom);
-          setRoadDistanceKm((route.distance ?? 0) / 1000);
-          setRoadDurationMin((route.duration ?? 0) / 60);
+          const geom = route.geometry; setRoadGeom(geom);
+          setRoadDistanceKm((route.distance ?? 0) / 1000); setRoadDurationMin((route.duration ?? 0) / 60);
           map.getSource("routes-road").setData({ type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: { name: "Straßenroute (OSRM)" } }] });
-        }
+        } else { setRouteError("Keine Route gefunden"); }
       } else {
         const base = config.valhallaBase.replace(/\/$/, "");
         const url = `${base}/route`;
@@ -370,40 +295,19 @@ export default function App() {
         const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         if (!res.ok) throw new Error(`Valhalla ${res.status}`);
         const json = await res.json();
-        const trip = json.trip;
-        let totalDistKm = 0; let totalDurMin = 0; const coords: [number, number][] = [];
-        if (trip?.legs) {
-          for (const leg of trip.legs) {
-            totalDistKm += (leg.summary?.length ?? 0);
-            totalDurMin += (leg.summary?.time ?? 0) / 60;
-            const legCoords = decodeValhallaShape(leg.shape);
-            coords.push(...legCoords);
-          }
-        }
-        setRoadDistanceKm(totalDistKm);
-        setRoadDurationMin(totalDurMin);
-        const geom = { type: "LineString", coordinates: coords } as any;
-        setRoadGeom(geom);
+        const trip = json.trip; let totalDistKm = 0; let totalDurMin = 0; const coords: [number, number][] = [];
+        if (trip?.legs) { for (const leg of trip.legs) { totalDistKm += (leg.summary?.length ?? 0); totalDurMin += (leg.summary?.time ?? 0) / 60; const legCoords = decodeValhallaShape(leg.shape); coords.push(...legCoords); } }
+        setRoadDistanceKm(totalDistKm); setRoadDurationMin(totalDurMin);
+        const geom = { type: "LineString", coordinates: coords } as any; setRoadGeom(geom);
         map.getSource("routes-road").setData({ type: "FeatureCollection", features: [{ type: "Feature", geometry: geom, properties: { name: "Straßenroute (Valhalla)" } }] });
       }
-    } catch (e) {
-      // silently ignore for now, could set status
-    } finally {
-      setRoutingBusy(false);
-    }
+    } catch (e: any) { setRouteError(e?.message || "Routing fehlgeschlagen"); }
+    finally { setRoutingBusy(false); }
   }
 
   function decodeValhallaShape(shape: string): [number, number][] {
-    // Valhalla uses polyline6
-    let index = 0, lat = 0, lon = 0; const coordinates: [number, number][] = [];
-    const factor = 1e-6;
-    while (index < shape.length) {
-      let b = 0, shift = 0, result = 0; do { b = shape.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-      const dlat = (result & 1) ? ~(result >> 1) : (result >> 1); lat += dlat;
-      shift = 0; result = 0; do { b = shape.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-      const dlon = (result & 1) ? ~(result >> 1) : (result >> 1); lon += dlon;
-      coordinates.push([lon * factor, lat * factor]);
-    }
+    let index = 0, lat = 0, lon = 0; const coordinates: [number, number][] = []; const factor = 1e-6;
+    while (index < shape.length) { let b = 0, shift = 0, result = 0; do { b = shape.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20); const dlat = (result & 1) ? ~(result >> 1) : (result >> 1); lat += dlat; shift = 0; result = 0; do { b = shape.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20); const dlon = (result & 1) ? ~(result >> 1) : (result >> 1); lon += dlon; coordinates.push([lon * factor, lat * factor]); }
     return coordinates;
   }
 
@@ -417,7 +321,7 @@ export default function App() {
   function exportGPX() {
     const coords: [number, number][] = (roadGeom?.coordinates as any) || waypoints.map(w => w.coord);
     const trkpts = coords.map(c => `<trkpt lon="${c[0]}" lat="${c[1]}"></trkpt>`).join("\n");
-    const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="worldmap" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Route</name><trkseg>${trkpts}</trkseg></trk></gpx>`;
+    const gpx = `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"worldmap\" xmlns=\"http://www.topografix.com/GPX/1/1\"><trk><name>Route</name><trkseg>${trkpts}</trkseg></trk></gpx>`;
     downloadBlob(gpx, "route.gpx", "application/gpx+xml");
   }
   function downloadBlob(data: string, filename: string, type: string) { const blob = new Blob([data], { type }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
@@ -472,13 +376,12 @@ export default function App() {
         <div className="space-y-1">
           {(["nationalparks","attractions","unesco","beaches"] as OverlayKey[]).map((k) => (
             <label key={k} className="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" checked={overlays[k]} onChange={(e) => setOverlays(prev => ({ ...prev, [k]: e.target.checked }))} />
+              <input type="checkbox" checked={overlays[k]} onChange={(e) => { setOverlays(prev => ({ ...prev, [k]: e.target.checked })); setTimeout(reloadActiveOverlays, 0); }} />
               <span className="inline-block h-3 w-3 rounded-full" style={{ background: overlayColors[k] }} />
               <span className="capitalize">{k === "nationalparks" ? "Nationalparks" : k === "attractions" ? "Sehenswürdigkeiten" : k === "unesco" ? "UNESCO" : "Strände"}</span>
-              {overlayLoading[k] && <span className="ml-auto text-xs opacity-70">lädt…</span>}
             </label>
           ))}
-          <div className="mt-1 text-xs opacity-65">Tipp: Für bessere Ergebnisse in die Karte hineinzoomen.</div>
+          <div className="mt-1 text-xs opacity-65">Hinweis: Ergebnisse erscheinen im sichtbaren Kartenausschnitt.</div>
         </div>
       </div>
 
@@ -531,6 +434,7 @@ export default function App() {
                   <button className="rounded bg-zinc-200 px-2 py-1 text-xs hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600" onClick={exportGPX}>Export GPX</button>
                 </div>
               </div>
+              {routeError && <div className="rounded bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:bg-rose-900/30 dark:text-rose-200">{routeError}</div>}
               <div className="flex items-center gap-2">
                 <input id="save-name" placeholder="Routenname" className="w-full rounded border border-border bg-white px-2 py-1 text-sm dark:bg-black/20" />
                 <button className="rounded bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-700" onClick={() => { const el = document.getElementById("save-name") as HTMLInputElement | null; const name = el?.value?.trim() || "Meine Route"; saveCurrentRoute(name); }}>Speichern</button>
@@ -562,10 +466,6 @@ export default function App() {
             <div>
               <label className="mb-1 block text-xs opacity-70">Geocoder Base (Photon)</label>
               <input value={config.geocoderBase} onChange={(e) => setConfig({ ...config, geocoderBase: e.target.value })} className="w-full rounded border border-border bg-white px-2 py-1 dark:bg-black/20" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs opacity-70">Overpass Bases (eine pro Zeile)</label>
-              <textarea value={config.overpassBases.join("\n")} onChange={(e) => setConfig({ ...config, overpassBases: e.target.value.split(/\n+/).map(s => s.trim()).filter(Boolean) })} rows={3} className="w-full rounded border border-border bg-white px-2 py-1 dark:bg-black/20" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
