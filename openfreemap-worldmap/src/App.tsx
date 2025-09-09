@@ -31,14 +31,16 @@ export default function App() {
         const map = new window.maplibregl.Map({
           container: mapContainerRef.current!,
           style: OFM_STYLE_URL,
-          center: [8, 50],
-          zoom: 4.2,
+          center: [0, 20],
+          zoom: 0,
+          minZoom: 0,
           maxZoom: 20,
           renderWorldCopies: false,
           attributionControl: false,
-          cooperativeGestures: true,
+          cooperativeGestures: false,
         });
         mapRef.current = map;
+        try { map.scrollZoom.enable(); } catch {}
 
         map.addControl(new window.maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
         map.addControl(new window.maplibregl.ScaleControl({ maxWidth: 140, unit: "metric" }), "bottom-left");
