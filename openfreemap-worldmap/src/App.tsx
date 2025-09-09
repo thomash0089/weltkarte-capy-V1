@@ -80,7 +80,7 @@ export default function App() {
           style: OFM_STYLE_URL,
           center: [0, 20],
           zoom: 2,
-          minZoom: 1,
+          minZoom: 2,
           maxZoom: 20,
           renderWorldCopies: false,
           attributionControl: false,
