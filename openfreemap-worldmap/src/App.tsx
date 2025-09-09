@@ -75,6 +75,7 @@ export default function App() {
   const overlayAbort = useRef<Record<OverlayKey, AbortController | null>>({ nationalparks: null, attractions: null, unesco: null, beaches: null });
   const [overlayLoading, setOverlayLoading] = useState<Record<OverlayKey, boolean>>({ nationalparks: false, attractions: false, unesco: false, beaches: false });
   const overlayColors: Record<OverlayKey, string> = { nationalparks: "#2e7d32", attractions: "#8e24aa", unesco: "#f4511e", beaches: "#0288d1" };
+  const unescoRef = useRef<any | null>(null);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [config, setConfig] = useState<Config>(() => {
@@ -137,7 +138,12 @@ export default function App() {
 
   useEffect(() => { updateRouteLine(); computeRoadRoute(); }, [waypoints, config.routingEngine, config.osrmBase, config.valhallaBase]);
 
+<<<<<<< Updated upstream
   useEffect(() => { reloadActiveOverlays(); }, [overlays, config.overpassBases]);
+=======
+  useEffect(() => { reloadActiveOverlays(); }, [overlays]);
+  useEffect(() => { (async () => { try { const res = await fetch('/data/unesco.geojson'); if (res.ok) { unescoRef.current = await res.json(); reloadActiveOverlays(); } } catch {} })(); }, []);
+>>>>>>> Stashed changes
 
   function restoreFromStorage() {
     try {
@@ -246,12 +252,23 @@ export default function App() {
   function getMapBbox(): [number, number, number, number] | null { const map = mapRef.current; if (!map) return null; const b = map.getBounds(); return [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]; }
 
   function reloadActiveOverlays() {
+<<<<<<< Updated upstream
     const bbox = getMapBbox(); const map = mapRef.current; if (!bbox || !map) return; const zoom = map.getZoom();
     (Object.keys(overlays) as OverlayKey[]).forEach((k) => { if (overlays[k]) { if (zoom < 4) { clearOverlay(k); return; } loadOverlay(k, bbox); } else { clearOverlay(k); } });
+=======
+    const map = mapRef.current; if (!map) return; const zoom = map.getZoom();
+    (Object.keys(overlays) as OverlayKey[]).forEach((k) => {
+      if (!overlays[k]) { setOverlayData(k, { type: 'FeatureCollection', features: [] }); return; }
+      if (k === 'unesco') { updateOverlayUNESCO(); return; }
+      if (zoom < 3) { setOverlayData(k, { type: 'FeatureCollection', features: [] }); return; }
+      updateOverlayFromTilesStrict(k);
+    });
+>>>>>>> Stashed changes
   }
 
   function clearOverlay(key: OverlayKey) { const map = mapRef.current; if (!map) return; const src = map.getSource(`overlay-${key}`); if (src) src.setData({ type: "FeatureCollection", features: [] }); if (overlayAbort.current[key]) overlayAbort.current[key]!.abort(); overlayAbort.current[key] = null; setOverlayLoading(prev => ({ ...prev, [key]: false })); }
 
+<<<<<<< Updated upstream
   async function loadOverlay(key: OverlayKey, bbox: [number, number, number, number]) {
     if (overlayAbort.current[key]) overlayAbort.current[key]!.abort(); const ctl = new AbortController(); overlayAbort.current[key] = ctl; setOverlayLoading(prev => ({ ...prev, [key]: true }));
     const q = buildOverpassQuery(key, bbox);
@@ -287,6 +304,44 @@ export default function App() {
     const subtitleParts = [tags["wikidata"] ? "Wikidata" : null, tags["heritage"] ? "Heritage" : null].filter(Boolean);
     const p: any = { title: name || "Objekt", subtitle: subtitleParts.join(" · ") };
     return { type: "Feature", geometry: { type: "Point", coordinates: coord }, properties: p } as any;
+=======
+  function updateOverlayFromTilesStrict(key: OverlayKey) {
+    const map = mapRef.current; if (!map) return;
+    const w = map.getCanvas().width, h = map.getCanvas().height;
+    const tl = [0, 0] as any; const br = [w, h] as any;
+    const layers = key === 'nationalparks' ? ['park'] : key === 'beaches' ? ['landcover_sand'] : ['poi_r1','poi_r7','poi_r20'];
+    const feats = map.queryRenderedFeatures([tl, br], { layers });
+    const selected: any[] = [];
+    const seen = new Set<string>();
+    for (const f of feats) {
+      const g = f.geometry; if (!g) continue;
+      const gj = { type: 'Feature', geometry: g, properties: { ...(f.properties || {}), title: f.properties?.name || f.properties?.['name:'+lang] || f.properties?.class || null } } as any;
+      const sig = (() => { try { const c = (g.type === 'Point' ? (g.coordinates as any) : (g.type === 'LineString' ? (g.coordinates as any)[0] : (g.type === 'Polygon' ? (g.coordinates as any)[0]?.[0] : (g.type === 'MultiPolygon' ? (g.coordinates as any)[0]?.[0]?.[0] : null)))); return `${g.type}|${Array.isArray(c) ? c.map((n: number) => n.toFixed(5)).join(',') : Math.random()}`; } catch { return `${Math.random()}`; } })();
+      if (seen.has(sig)) continue; seen.add(sig);
+      selected.push(gj);
+    }
+    const fc = { type: 'FeatureCollection', features: selected } as any;
+    setOverlayData(key, fc);
+  }
+
+  function updateOverlayUNESCO() {
+    const map = mapRef.current; if (!map || !unescoRef.current) { setOverlayData('unesco', { type:'FeatureCollection', features: [] }); return; }
+    const b = map.getBounds();
+    const minx = b.getWest(), miny = b.getSouth(), maxx = b.getEast(), maxy = b.getNorth();
+    const feats = (unescoRef.current.features || []).filter((f: any) => {
+      const c = f.geometry?.coordinates; if (!c) return false; const [x,y] = c; return x>=minx && x<=maxx && y>=miny && y<=maxy; });
+    const fc = { type:'FeatureCollection', features: feats } as any;
+    setOverlayData('unesco', fc);
+  }
+
+  function matchesOverlay(key: OverlayKey, f: any) {
+    const p = f.properties || {}; const cls = (p.class || p.subclass || "") + ""; const nat = (p.natural || "") + ""; const leisure = (p.leisure || "") + ""; const boundary = (p.boundary || "") + ""; const protect = (p.protect_class ?? "") + ""; const hist = (p.historic || "") + ""; const tour = (p.tourism || "") + ""; const herOp = ((p["heritage:operator"] || "") + "").toLowerCase(); const heritage = (p.heritage ?? "") + "";
+    if (key === "beaches") return nat === "beach" || cls === "beach";
+    if (key === "nationalparks") return (boundary === "protected_area" && (protect === "2" || protect === "2.0")) || leisure === "nature_reserve" || cls === "national_park" || cls === "nature_reserve";
+    if (key === "attractions") return ["attraction","museum","gallery","theme_park","zoo","monument","viewpoint","castle","church","cathedral","tower","ruins","memorial","fort","temple"].includes(cls) || !!hist || tour.length > 0;
+    if (key === "unesco") return heritage === "1" || herOp.includes("unesco");
+    return false;
+>>>>>>> Stashed changes
   }
 
   async function computeRoadRoute() {
