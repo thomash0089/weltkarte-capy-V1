@@ -56,6 +56,7 @@ export default function App() {
 
   const [overlays, setOverlays] = useState<Record<OverlayKey, boolean>>({ nationalparks: false, attractions: false, unesco: false, beaches: false });
   const overlayColors: Record<OverlayKey, string> = { nationalparks: "#2e7d32", attractions: "#8e24aa", unesco: "#f4511e", beaches: "#0288d1" };
+  const unescoRef = useRef<any | null>(null);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [config, setConfig] = useState<Config>(() => {
@@ -79,8 +80,8 @@ export default function App() {
           container: mapContainerRef.current!,
           style: OFM_STYLE_URL,
           center: [0, 20],
-          zoom: 2,
-          minZoom: 2,
+          zoom: 0,
+          minZoom: 0,
           maxZoom: 20,
           renderWorldCopies: false,
           attributionControl: false,
@@ -118,6 +119,8 @@ export default function App() {
   useEffect(() => { updateRouteLine(); computeRoadRoute(); }, [waypoints, config.routingEngine, config.osrmBase, config.valhallaBase]);
 
   useEffect(() => { reloadActiveOverlays(); }, [overlays]);
+
+  useEffect(() => { (async () => { try { const res = await fetch('/data/unesco.geojson'); if (res.ok) { unescoRef.current = await res.json(); reloadActiveOverlays(); } } catch {} })(); }, []);
 
   function restoreFromStorage() {
     try {
@@ -220,33 +223,43 @@ export default function App() {
 
   function reloadActiveOverlays() {
     const map = mapRef.current; if (!map) return; const zoom = map.getZoom();
-    (Object.keys(overlays) as OverlayKey[]).forEach((k) => { if (overlays[k]) { if (zoom < 3) { setOverlayData(k, { type: "FeatureCollection", features: [] }); return; } updateOverlayFromTiles(k); } else { setOverlayData(k, { type: "FeatureCollection", features: [] }); } });
+    (Object.keys(overlays) as OverlayKey[]).forEach((k) => {
+      if (!overlays[k]) { setOverlayData(k, { type: 'FeatureCollection', features: [] }); return; }
+      if (k === 'unesco') { updateOverlayUNESCO(); return; }
+      if (zoom < 3) { setOverlayData(k, { type: 'FeatureCollection', features: [] }); return; }
+      updateOverlayFromTilesStrict(k);
+    });
   }
 
   function setOverlayData(key: OverlayKey, fc: any) { const map = mapRef.current; if (!map) return; const src = map.getSource(`overlay-${key}`); if (src) src.setData(fc); }
 
-  function updateOverlayFromTiles(key: OverlayKey) {
+  function updateOverlayFromTilesStrict(key: OverlayKey) {
     const map = mapRef.current; if (!map) return;
     const w = map.getCanvas().width, h = map.getCanvas().height;
     const tl = [0, 0] as any; const br = [w, h] as any;
-    const feats = map.queryRenderedFeatures([tl, br]);
+    const layers = key === 'nationalparks' ? ['park'] : key === 'beaches' ? ['landcover_sand'] : ['poi_r1','poi_r7','poi_r20'];
+    const feats = map.queryRenderedFeatures([tl, br], { layers });
     const selected: any[] = [];
     const seen = new Set<string>();
     for (const f of feats) {
-      if (!matchesOverlay(key, f)) continue;
       const g = f.geometry; if (!g) continue;
-      const gj = { type: "Feature", geometry: g, properties: { ...(f.properties || {}), title: f.properties?.name || f.properties?.["name:"+lang] || f.properties?.class || null } } as any;
-      const sig = (() => {
-        try {
-          const c = (g.type === "Point" ? (g.coordinates as any) : (g.type === "LineString" ? (g.coordinates as any)[0] : (g.type === "Polygon" ? (g.coordinates as any)[0]?.[0] : (g.type === "MultiPolygon" ? (g.coordinates as any)[0]?.[0]?.[0] : null))));
-          return `${g.type}|${Array.isArray(c) ? c.map((n: number) => n.toFixed(5)).join(",") : Math.random()}`;
-        } catch { return `${Math.random()}`; }
-      })();
+      const gj = { type: 'Feature', geometry: g, properties: { ...(f.properties || {}), title: f.properties?.name || f.properties?.['name:'+lang] || f.properties?.class || null } } as any;
+      const sig = (() => { try { const c = (g.type === 'Point' ? (g.coordinates as any) : (g.type === 'LineString' ? (g.coordinates as any)[0] : (g.type === 'Polygon' ? (g.coordinates as any)[0]?.[0] : (g.type === 'MultiPolygon' ? (g.coordinates as any)[0]?.[0]?.[0] : null)))); return `${g.type}|${Array.isArray(c) ? c.map((n: number) => n.toFixed(5)).join(',') : Math.random()}`; } catch { return `${Math.random()}`; } })();
       if (seen.has(sig)) continue; seen.add(sig);
       selected.push(gj);
     }
-    const fc = { type: "FeatureCollection", features: selected } as any;
+    const fc = { type: 'FeatureCollection', features: selected } as any;
     setOverlayData(key, fc);
+  }
+
+  function updateOverlayUNESCO() {
+    const map = mapRef.current; if (!map || !unescoRef.current) { setOverlayData('unesco', { type:'FeatureCollection', features: [] }); return; }
+    const b = map.getBounds();
+    const minx = b.getWest(), miny = b.getSouth(), maxx = b.getEast(), maxy = b.getNorth();
+    const feats = (unescoRef.current.features || []).filter((f: any) => {
+      const c = f.geometry?.coordinates; if (!c) return false; const [x,y] = c; return x>=minx && x<=maxx && y>=miny && y<=maxy; });
+    const fc = { type:'FeatureCollection', features: feats } as any;
+    setOverlayData('unesco', fc);
   }
 
   function matchesOverlay(key: OverlayKey, f: any) {
